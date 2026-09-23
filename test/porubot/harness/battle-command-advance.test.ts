@@ -1,7 +1,9 @@
 import { AbilityId } from "#enums/ability-id";
+import { BattleType } from "#enums/battle-type";
 import { BattlerIndex } from "#enums/battler-index";
 import { MoveId } from "#enums/move-id";
 import { SpeciesId } from "#enums/species-id";
+import { TrainerType } from "#enums/trainer-type";
 import { GameManager } from "#test/framework/game-manager";
 import Phaser from "phaser";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -108,5 +110,41 @@ describe("porubot harness - battle-command-advance", () => {
     );
 
     expect(status).toBe("ok");
+  });
+
+  /**
+   * Regression coverage for a real bug found while generating fresh
+   * collector data with the current (post-fix) harness: an enemy trainer's
+   * automatic switch-in after a mid-battle KO (SwitchSummonPhase) becomes
+   * "current" without its own start() having run yet, exactly like
+   * SelectTargetPhase above - but here it was this module's own concurrent
+   * prompt-polling (advanceCurrentUiPromptIfPossible pressing ACTION on
+   * every ui_mode: MESSAGE tick) that raced the phase's own message/
+   * continuation flow and wedged it, reproducing the historical
+   * step_timeout:advance_combat_after_action hang. This test would time out
+   * without the SwitchSummonPhase guard in advanceCurrentUiPromptIfPossible
+   * and the dedicated pump in advanceCombatAfterAction.
+   */
+  it("advanceCombatAfterAction resolves after an enemy trainer's mid-battle auto-switch-in", async () => {
+    game.override
+      .battleStyle("single")
+      .battleType(BattleType.TRAINER)
+      .randomTrainer({ trainerType: TrainerType.YOUNGSTER })
+      .startingLevel(100)
+      .enemyLevel(1)
+      .moveset([MoveId.TACKLE])
+      .ability(AbilityId.BALL_FETCH)
+      .enemyAbility(AbilityId.BALL_FETCH)
+      .enemyMoveset(MoveId.SPLASH);
+    await game.classicMode.startBattle(SpeciesId.FEEBAS);
+
+    // KOs the trainer's first Pokemon mid-battle, triggering their automatic
+    // SwitchSummonPhase send-in of the next party member - not a wave-ending
+    // victory, so this stays within the same advanceCombatAfterAction call.
+    game.move.select(MoveId.TACKLE);
+    const status = await advanceCombatAfterAction(game, 15000);
+
+    expect(status).toBe("ok");
+    expect(game.isCurrentPhase("CommandPhase")).toBe(true);
   });
 });

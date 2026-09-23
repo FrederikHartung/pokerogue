@@ -184,6 +184,16 @@ export function advanceCurrentUiPromptIfPossible(game: GameManager): boolean {
   if (uiMode !== UiMode.MESSAGE && uiMode !== UiMode.CONFIRM && uiMode !== UiMode.EVOLUTION_SCENE) {
     return false;
   }
+  if (game.isCurrentPhase("SwitchSummonPhase")) {
+    // A stray button press here can race SwitchSummonPhase's own message/
+    // continuation flow before its start() has even run (the phase becomes
+    // "current" without starting - see docs/pokerogue-headless-test-harness-mechanics.md),
+    // permanently wedging it instead of dismissing anything meaningful. This
+    // phase (either side's post-KO/pre-battle switch-in) needs no player
+    // input, so it's always safe to just leave it alone here and let a
+    // dedicated phaseInterceptor.to() pump elsewhere drive it.
+    return false;
+  }
 
   const handler = game.scene.ui.getHandler() as { processInput?: (button: Button) => boolean } | undefined;
   if (typeof handler?.processInput === "function") {
@@ -766,6 +776,25 @@ export async function advanceCombatAfterAction(game: GameManager, stepTimeoutMs:
   }
   if (isCombatTerminalPhase(game)) {
     return "terminal";
+  }
+
+  if (game.isCurrentPhase("SwitchSummonPhase")) {
+    // An enemy trainer's automatic switch-in after a mid-battle KO becomes
+    // "current" here without its own start() having run yet (see the
+    // SelectTargetPhase comment below and
+    // docs/pokerogue-headless-test-harness-mechanics.md). Unlike that case,
+    // this phase normally gets pumped along by the toNextTurn() background
+    // promise driven further down - but that promise's own phase-advancing
+    // races against this function's concurrent prompt-polling loop
+    // (advanceCurrentUiPromptIfPossible et al.), and the two interfere with
+    // each other here, reproducing the historical
+    // step_timeout:advance_combat_after_action hang. Driving this one phase
+    // alone first, without any concurrent polling, avoids that interference.
+    try {
+      await withTimeout(game.phaseInterceptor.to("SwitchSummonPhase"), stepTimeoutMs, "switch_summon_phase_start_pump");
+    } catch {
+      return isCombatTerminalPhase(game) ? "terminal" : "timeout";
+    }
   }
 
   const switchResolveStatus = resolveForcedSwitchIfNeeded(game);
