@@ -47,3 +47,8 @@ coverage
 # Script outputs
 *.csv
 species-output/*
+
+# pokeRogueBot: ephemeral, per-run RL collector test files rendered at
+# runtime from scripts/90-dev/rl/templates/*.template.ts in the main repo.
+# Never committed; regenerated on every run with per-invocation parameters.
+test/.external-rl/
