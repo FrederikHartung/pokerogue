@@ -147,4 +147,39 @@ describe("porubot harness - battle-command-advance", () => {
     expect(status).toBe("ok");
     expect(game.isCurrentPhase("CommandPhase")).toBe(true);
   });
+
+  /**
+   * Regression coverage for a second real bug found in the same fresh
+   * collector data generation pass as the SwitchSummonPhase fix above: an
+   * ordinary mid-battle faint (no challenge involved, despite the engine
+   * reusing its "illegalEvolution" message for any on-field Pokemon that can
+   * no longer battle) forces a switch via SwitchPhase. That phase becomes
+   * "current" without its own start() having run yet, same as
+   * SwitchSummonPhase/SelectTargetPhase - and here too, this module's own
+   * concurrent advanceCurrentUiPromptIfPossible() polling raced its message/
+   * continuation flow before the phase ever opened its party-selection UI,
+   * so the forced switch never had a UI to answer and the wave never
+   * progressed. This test would time out without the SwitchPhase guard in
+   * advanceCurrentUiPromptIfPossible.
+   */
+  it("advanceCombatAfterAction resolves an ordinary mid-battle forced switch after a faint", async () => {
+    game.override
+      .battleStyle("single")
+      .startingLevel(1)
+      .enemyLevel(100)
+      .moveset([MoveId.SPLASH])
+      .ability(AbilityId.BALL_FETCH)
+      .enemySpecies(SpeciesId.MAGIKARP)
+      .enemyAbility(AbilityId.BALL_FETCH)
+      .enemyMoveset(MoveId.TACKLE);
+    await game.classicMode.startBattle(SpeciesId.FEEBAS, SpeciesId.SQUIRTLE, SpeciesId.BULBASAUR);
+
+    // Feebas (level 1) faints to the level-100 enemy's TACKLE this turn,
+    // forcing a switch to the next available party member.
+    game.move.select(MoveId.SPLASH);
+    const status = await advanceCombatAfterAction(game, 8000);
+
+    expect(status).toBe("ok");
+    expect(game.isCurrentPhase("CommandPhase")).toBe(true);
+  });
 });

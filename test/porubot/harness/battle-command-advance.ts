@@ -2,6 +2,7 @@ import { allMoves } from "#data/data-lists";
 import { Button } from "#enums/buttons";
 import { MoveCategory } from "#enums/move-category";
 import { MoveId } from "#enums/move-id";
+import { PartyUiMode } from "#enums/party-ui-mode";
 import { UiMode } from "#enums/ui-mode";
 import type { GameManager } from "#test/framework/game-manager";
 
@@ -184,14 +185,16 @@ export function advanceCurrentUiPromptIfPossible(game: GameManager): boolean {
   if (uiMode !== UiMode.MESSAGE && uiMode !== UiMode.CONFIRM && uiMode !== UiMode.EVOLUTION_SCENE) {
     return false;
   }
-  if (game.isCurrentPhase("SwitchSummonPhase")) {
-    // A stray button press here can race SwitchSummonPhase's own message/
+  if (game.isCurrentPhase("SwitchSummonPhase") || game.isCurrentPhase("SwitchPhase")) {
+    // A stray button press here can race this phase's own message/
     // continuation flow before its start() has even run (the phase becomes
     // "current" without starting - see docs/pokerogue-headless-test-harness-mechanics.md),
-    // permanently wedging it instead of dismissing anything meaningful. This
-    // phase (either side's post-KO/pre-battle switch-in) needs no player
-    // input, so it's always safe to just leave it alone here and let a
-    // dedicated phaseInterceptor.to() pump elsewhere drive it.
+    // permanently wedging it instead of dismissing anything meaningful.
+    // SwitchSummonPhase needs no player input at all; SwitchPhase does (the
+    // forced-switch party selection), but that is serviced explicitly by
+    // resolveForcedSwitchIfNeeded() once its own start() has actually opened
+    // the party UI - a blind ACTION press here can fire before that point
+    // and prevent it from ever opening.
     return false;
   }
 
@@ -343,7 +346,18 @@ export function resolveOptionalCheckSwitchIfNeeded(game: GameManager): "not_chec
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: verbatim move from the production collector template; restructuring risks changing behavior, see AGENTS.md harness/ exception
 export function resolveForcedSwitchIfNeeded(game: GameManager): "not_switch_phase" | "selected" | "no_candidate" {
   const battle = game.scene.currentBattle as any;
-  if (!game.isCurrentPhase("SwitchPhase")) {
+  // Pokemon.switchOut() (called directly from TurnInitPhase.start() whenever
+  // the on-field Pokemon can no longer battle, e.g. after an ordinary faint -
+  // see the "illegalEvolution" message it reuses for this, which fires for
+  // plain fainting too, not just actual challenge violations) opens the
+  // party-select UI itself via a synchronous ui.setMode(PARTY, FAINT_SWITCH,
+  // ...) call, with no dedicated SwitchPhase involved at all. So this can
+  // surface as ui_mode: PARTY while the *current* phase is whatever runs
+  // next (e.g. the enemy's already-queued MovePhase), independent of
+  // isCurrentPhase("SwitchPhase").
+  const partyHandler = game.scene.ui?.getMode?.() === UiMode.PARTY ? (game.scene.ui.getHandler() as any) : undefined;
+  const isForcedSwitchPartyUi = partyHandler?.partyUiMode === PartyUiMode.FAINT_SWITCH;
+  if (!game.isCurrentPhase("SwitchPhase") && !isForcedSwitchPartyUi) {
     if (battle && Object.hasOwn(battle, "__collectorForcedSwitchQueued")) {
       // biome-ignore lint/performance/noDelete: must remove the property (not just set it to undefined) so the Object.hasOwn presence-check above stays accurate
       delete battle.__collectorForcedSwitchQueued;
