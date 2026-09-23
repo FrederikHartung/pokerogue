@@ -6,6 +6,13 @@ got stuck waiting on a preceding phase's input) as a fixed, fast assertion,
 so a future `pokerogue` submodule update surfaces the regression via a
 seconds-long test run instead of a multi-minute strategic-collection timeout.
 
+Before writing a new test here, read the main repo's
+`docs/pokerogue-headless-test-harness-mechanics.md` - it documents the
+underlying mechanics (the prompt queue is FIFO and strictly ordered, phase
+sequencing surprises like `SwitchPhase` running after `NewBattlePhase`,
+`phaseInterceptor.to()` semantics) that make these failure patterns
+possible in the first place.
+
 Scope for this folder specifically (see `AGENTS.md` and
 `docs/pokerogue-submodule-versioning.md` for the full policy):
 
