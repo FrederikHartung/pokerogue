@@ -5,7 +5,7 @@ import { MoveId } from "#enums/move-id";
 import { SpeciesId } from "#enums/species-id";
 import { TrainerType } from "#enums/trainer-type";
 import { GameManager } from "#test/framework/game-manager";
-import { advanceDoubleCombatAfterAction } from "#test/porubot/harness/battle-command-advance";
+import { advanceDoubleCombatAfterAction, getCommandFieldIndexSafe } from "#test/porubot/harness/battle-command-advance";
 import Phaser from "phaser";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -106,5 +106,7 @@ describe("porubot regression replay - wave 14 double-trainer CommandPhase stuck 
     );
 
     expect(advanceStatus).toBe("ok");
+    expect(game.isCurrentPhase("CommandPhase")).toBe(true);
+    expect(getCommandFieldIndexSafe(game)).toBe(1);
   });
 });
