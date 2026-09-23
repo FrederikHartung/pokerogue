@@ -901,6 +901,29 @@ export async function waitForDoubleTargetPhaseOrImmediateFollowup(
       return "terminal";
     }
     if (game.isCurrentPhase("SelectTargetPhase")) {
+      // In this test framework, a phase becomes "current" (via PhaseManager.shiftPhase)
+      // without its own start() ever running - only an explicit phaseInterceptor.to()
+      // call actually drives that (PhaseInterceptor overrides
+      // PhaseManager["startCurrentPhase"] to a no-op, see
+      // docs/pokerogue-headless-test-harness-mechanics.md). Every other advance path in
+      // this module is paired with a concurrent toNextTurn()/toEndOfTurn() pump, but
+      // nothing pumps SelectTargetPhase specifically, so it can sit as "current" forever
+      // without its UI ever reaching TARGET_SELECT. Since the target it names is already
+      // the current phase, this call only starts and awaits that one phase - it does not
+      // run any later, unrelated phases. Deliberately NOT wrapped in
+      // waitForPromiseOrTerminal: its concurrent prompt/forced-switch polling interferes
+      // with PhaseInterceptor's own internal timing here and reintroduces the hang.
+      if (game.scene.ui?.getMode?.() !== UiMode.TARGET_SELECT) {
+        try {
+          await withTimeout(
+            game.phaseInterceptor.to("SelectTargetPhase"),
+            Math.max(1, timeoutMs - (Date.now() - startedAt)),
+            "select_target_phase_start_pump",
+          );
+        } catch {
+          return isCombatTerminalPhase(game) ? "terminal" : "timeout";
+        }
+      }
       return "select_target";
     }
     if (isStableCommandInputState(game)) {
