@@ -36,3 +36,4 @@ ignore:
    - .devcontainer
    - "LICENSES"
    - .idea
+   - test/.external-rl
