@@ -8,6 +8,7 @@ import { GameManager } from "#test/framework/game-manager";
 import Phaser from "phaser";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { advanceCombatAfterAction, advanceDoubleCombatAfterAction } from "./battle-command-advance";
+import { installSingleDriverPhaseInterceptor } from "./single-driver-phase-interceptor";
 
 /**
  * Self-test for the extracted collector harness (see AGENTS.md "Stehende
@@ -27,6 +28,9 @@ describe("porubot harness - battle-command-advance", () => {
 
   beforeEach(() => {
     game = new GameManager(phaserGame);
+    // Same setup as the production collector (see its template), so these
+    // tests exercise the harness exactly as it runs in the pipeline.
+    installSingleDriverPhaseInterceptor(game);
   });
 
   it("advanceCombatAfterAction resolves to a stable CommandPhase after a single-battle move", async () => {
@@ -122,8 +126,9 @@ describe("porubot harness - battle-command-advance", () => {
    * every ui_mode: MESSAGE tick) that raced the phase's own message/
    * continuation flow and wedged it, reproducing the historical
    * step_timeout:advance_combat_after_action hang. This test would time out
-   * without the SwitchSummonPhase guard in advanceCurrentUiPromptIfPossible
-   * and the dedicated pump in advanceCombatAfterAction.
+   * without the SwitchSummonPhase guard in advanceCurrentUiPromptIfPossible.
+   * (A dedicated SwitchSummonPhase pump in advanceCombatAfterAction was later
+   * removed again: with installSingleDriverPhaseInterceptor() it is redundant.)
    */
   it("advanceCombatAfterAction resolves after an enemy trainer's mid-battle auto-switch-in", async () => {
     game.override

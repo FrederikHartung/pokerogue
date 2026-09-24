@@ -2,7 +2,6 @@ import { allMoves } from "#data/data-lists";
 import { Button } from "#enums/buttons";
 import { MoveCategory } from "#enums/move-category";
 import { MoveId } from "#enums/move-id";
-import { PartyUiMode } from "#enums/party-ui-mode";
 import { UiMode } from "#enums/ui-mode";
 import type { GameManager } from "#test/framework/game-manager";
 
@@ -346,18 +345,7 @@ export function resolveOptionalCheckSwitchIfNeeded(game: GameManager): "not_chec
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: verbatim move from the production collector template; restructuring risks changing behavior, see AGENTS.md harness/ exception
 export function resolveForcedSwitchIfNeeded(game: GameManager): "not_switch_phase" | "selected" | "no_candidate" {
   const battle = game.scene.currentBattle as any;
-  // Pokemon.switchOut() (called directly from TurnInitPhase.start() whenever
-  // the on-field Pokemon can no longer battle, e.g. after an ordinary faint -
-  // see the "illegalEvolution" message it reuses for this, which fires for
-  // plain fainting too, not just actual challenge violations) opens the
-  // party-select UI itself via a synchronous ui.setMode(PARTY, FAINT_SWITCH,
-  // ...) call, with no dedicated SwitchPhase involved at all. So this can
-  // surface as ui_mode: PARTY while the *current* phase is whatever runs
-  // next (e.g. the enemy's already-queued MovePhase), independent of
-  // isCurrentPhase("SwitchPhase").
-  const partyHandler = game.scene.ui?.getMode?.() === UiMode.PARTY ? (game.scene.ui.getHandler() as any) : undefined;
-  const isForcedSwitchPartyUi = partyHandler?.partyUiMode === PartyUiMode.FAINT_SWITCH;
-  if (!game.isCurrentPhase("SwitchPhase") && !isForcedSwitchPartyUi) {
+  if (!game.isCurrentPhase("SwitchPhase")) {
     if (battle && Object.hasOwn(battle, "__collectorForcedSwitchQueued")) {
       // biome-ignore lint/performance/noDelete: must remove the property (not just set it to undefined) so the Object.hasOwn presence-check above stays accurate
       delete battle.__collectorForcedSwitchQueued;
@@ -790,25 +778,6 @@ export async function advanceCombatAfterAction(game: GameManager, stepTimeoutMs:
   }
   if (isCombatTerminalPhase(game)) {
     return "terminal";
-  }
-
-  if (game.isCurrentPhase("SwitchSummonPhase")) {
-    // An enemy trainer's automatic switch-in after a mid-battle KO becomes
-    // "current" here without its own start() having run yet (see the
-    // SelectTargetPhase comment below and
-    // docs/pokerogue-headless-test-harness-mechanics.md). Unlike that case,
-    // this phase normally gets pumped along by the toNextTurn() background
-    // promise driven further down - but that promise's own phase-advancing
-    // races against this function's concurrent prompt-polling loop
-    // (advanceCurrentUiPromptIfPossible et al.), and the two interfere with
-    // each other here, reproducing the historical
-    // step_timeout:advance_combat_after_action hang. Driving this one phase
-    // alone first, without any concurrent polling, avoids that interference.
-    try {
-      await withTimeout(game.phaseInterceptor.to("SwitchSummonPhase"), stepTimeoutMs, "switch_summon_phase_start_pump");
-    } catch {
-      return isCombatTerminalPhase(game) ? "terminal" : "timeout";
-    }
   }
 
   const switchResolveStatus = resolveForcedSwitchIfNeeded(game);
