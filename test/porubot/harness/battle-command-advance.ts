@@ -2,9 +2,11 @@ import { allMoves } from "#data/data-lists";
 import { Button } from "#enums/buttons";
 import { MoveCategory } from "#enums/move-category";
 import { MoveId } from "#enums/move-id";
+import { SwitchType } from "#enums/switch-type";
 import { UiMode } from "#enums/ui-mode";
 import type { GameManager } from "#test/framework/game-manager";
 import { sendOutFromPartyUi } from "./party-send-out";
+import { carrySwitchSlotToNextSwitchPhase, pollSwitchDecision } from "./switch-decision";
 
 /**
  * Generic, RL-policy-agnostic phase-/prompt-driving logic shared between:
@@ -330,12 +332,36 @@ export function clearStalePromptsForForcedSwitch(game: GameManager): void {
   }
 }
 
-export function resolveOptionalCheckSwitchIfNeeded(game: GameManager): "not_check_switch" | "skipped" {
+/**
+ * Answers the switch offer at the start of a wild battle. Without a decision provider (see switch-decision.ts) the
+ * offer is declined; with one, the harness waits for its answer and on a party index does what the offer's "yes"
+ * callback does (queue an INITIAL_SWITCH `SwitchPhase`), carrying the index over to that SwitchPhase.
+ */
+export function resolveOptionalCheckSwitchIfNeeded(
+  game: GameManager,
+): "not_check_switch" | "skipped" | "pending" | "switched" {
   if (!game.isCurrentPhase("CheckSwitchPhase")) {
     return "not_check_switch";
   }
   if (game.scene.ui?.getMode?.() !== UiMode.CONFIRM) {
     return "not_check_switch";
+  }
+  const phase = game.scene.phaseManager.getCurrentPhase();
+  const decision = phase ? pollSwitchDecision(game, "check_switch", phase) : { status: "none" as const };
+  if (decision.status === "pending") {
+    return "pending";
+  }
+  const party = game.scene.getPlayerParty();
+  const chosen = decision.status === "resolved" ? decision.result : null;
+  if (typeof chosen === "number" && isEligibleSwitchTarget(party[chosen])) {
+    // CheckSwitchPhase.fieldIndex is protected; single battles always ask for field index 0.
+    const fieldIndex = (phase as unknown as { fieldIndex?: number }).fieldIndex ?? 0;
+    game.setMode(UiMode.MESSAGE);
+    game.scene.phaseManager.unshiftNew("SwitchPhase", SwitchType.INITIAL_SWITCH, fieldIndex, false, true);
+    carrySwitchSlotToNextSwitchPhase(game, chosen);
+    game.endPhase();
+    clearStalePromptsForForcedSwitch(game);
+    return "switched";
   }
   game.setMode(UiMode.MESSAGE);
   game.endPhase();
@@ -343,7 +369,17 @@ export function resolveOptionalCheckSwitchIfNeeded(game: GameManager): "not_chec
   return "skipped";
 }
 
-export function resolveForcedSwitchIfNeeded(game: GameManager): "not_switch_phase" | "selected" | "no_candidate" {
+function isEligibleSwitchTarget(member: { isFainted(): boolean; isOnField(): boolean; isAllowedInBattle(): boolean } | undefined): boolean {
+  return member != null && !member.isFainted() && !member.isOnField() && member.isAllowedInBattle();
+}
+
+/**
+ * Answers a `SwitchPhase`. The party index comes from, in this order: a slot carried over from an accepted switch
+ * offer, the decision provider (see switch-decision.ts; "pending" while it runs), else the first eligible member.
+ */
+export function resolveForcedSwitchIfNeeded(
+  game: GameManager,
+): "not_switch_phase" | "selected" | "no_candidate" | "pending" {
   const battle = game.scene.currentBattle as any;
   if (!game.isCurrentPhase("SwitchPhase")) {
     if (battle && Object.hasOwn(battle, "__collectorForcedSwitchQueued")) {
@@ -355,10 +391,17 @@ export function resolveForcedSwitchIfNeeded(game: GameManager): "not_switch_phas
 
   clearStalePromptsForForcedSwitch(game);
   const party = game.scene.getPlayerParty();
-  const nextIndex = party.findIndex(member => !member.isFainted() && !member.isOnField() && member.isAllowedInBattle());
-  if (nextIndex < 0) {
+  const defaultIndex = party.findIndex(member => isEligibleSwitchTarget(member));
+  if (defaultIndex < 0) {
     return "no_candidate";
   }
+  const phase = game.scene.phaseManager.getCurrentPhase();
+  const decision = phase ? pollSwitchDecision(game, "forced_switch", phase) : { status: "none" as const };
+  if (decision.status === "pending") {
+    return "pending";
+  }
+  const chosen = decision.status === "resolved" ? decision.result : null;
+  const nextIndex = typeof chosen === "number" && isEligibleSwitchTarget(party[chosen]) ? chosen : defaultIndex;
 
   // sendOutFromPartyUi instead of blind ACTION presses / doSelectPartyPokemon: options left open in the
   // party handler by an earlier battle would otherwise turn the selection into SUMMARY (see party-send-out.ts).
