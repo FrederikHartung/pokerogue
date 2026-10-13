@@ -4,6 +4,7 @@ import { MoveCategory } from "#enums/move-category";
 import { MoveId } from "#enums/move-id";
 import { UiMode } from "#enums/ui-mode";
 import type { GameManager } from "#test/framework/game-manager";
+import { sendOutFromPartyUi } from "./party-send-out";
 
 /**
  * Generic, RL-policy-agnostic phase-/prompt-driving logic shared between:
@@ -342,7 +343,6 @@ export function resolveOptionalCheckSwitchIfNeeded(game: GameManager): "not_chec
   return "skipped";
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: verbatim move from the production collector template; restructuring risks changing behavior, see AGENTS.md harness/ exception
 export function resolveForcedSwitchIfNeeded(game: GameManager): "not_switch_phase" | "selected" | "no_candidate" {
   const battle = game.scene.currentBattle as any;
   if (!game.isCurrentPhase("SwitchPhase")) {
@@ -360,29 +360,14 @@ export function resolveForcedSwitchIfNeeded(game: GameManager): "not_switch_phas
     return "no_candidate";
   }
 
+  // sendOutFromPartyUi instead of blind ACTION presses / doSelectPartyPokemon: options left open in the
+  // party handler by an earlier battle would otherwise turn the selection into SUMMARY (see party-send-out.ts).
   if (game.scene.ui?.getMode?.() === UiMode.PARTY) {
-    const handler = game.scene.ui.getHandler() as any;
-    if (typeof handler?.setCursor === "function") {
-      handler.setCursor(nextIndex);
-    }
-    if (
-      typeof handler?.processInput === "function"
-      && Number.isInteger(handler?.cursor)
-      && handler.cursor !== nextIndex
-    ) {
-      const direction = handler.cursor < nextIndex ? Button.DOWN : Button.UP;
-      for (let attempts = 0; attempts < 8 && handler.cursor !== nextIndex; attempts += 1) {
-        handler.processInput(direction);
-      }
-    }
-    if (typeof handler?.processInput === "function") {
-      handler.processInput(Button.ACTION);
-      if (handler.optionsMode === true) {
-        handler.processInput(Button.ACTION);
-      }
-    }
+    sendOutFromPartyUi(game, nextIndex);
   } else if (battle?.__collectorForcedSwitchQueued !== nextIndex) {
-    game.doSelectPartyPokemon(nextIndex);
+    game.onNextPrompt("SwitchPhase", UiMode.PARTY, () => {
+      sendOutFromPartyUi(game, nextIndex);
+    });
     if (battle) {
       battle.__collectorForcedSwitchQueued = nextIndex;
     }
