@@ -16,6 +16,9 @@ import type { GameManager } from "#test/framework/game-manager";
  * - a new double battle after a biome switch (ToggleDoublePositionPhase,
  *   CheckSwitchPhase, InitEncounterPhase, PostSummonPhase) inside
  *   `advanceDoubleCombatAfterAction`.
+ * - LearnMovePhase after a level-up in a double battle. `resolveLearnMoveIfNeeded`
+ *   only answers the prompts of a started LearnMovePhase, so an undriven one
+ *   is driven here too (a started one is never "idling").
  *
  * The driver runs next to an advance function and, once a phase has been
  * current and undriven for `IDLE_PHASE_GRACE_MS`, runs exactly that phase with
@@ -30,7 +33,6 @@ export const HARNESS_HANDLED_PHASES = [
   "TurnInitPhase",
   "SelectModifierPhase",
   "SwitchPhase",
-  "LearnMovePhase",
   "SelectTargetPhase",
   "BattleEndPhase",
   "GameOverPhase",
