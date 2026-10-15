@@ -5,6 +5,7 @@ import { MoveId } from "#enums/move-id";
 import { SwitchType } from "#enums/switch-type";
 import { UiMode } from "#enums/ui-mode";
 import type { GameManager } from "#test/framework/game-manager";
+import { withIdlePhaseDriver } from "./idle-phase-driver";
 import { sendOutFromPartyUi } from "./party-send-out";
 import { carrySwitchSlotToNextSwitchPhase, pollSwitchDecision } from "./switch-decision";
 
@@ -767,9 +768,15 @@ export async function waitForPostVictoryForcedSwitchResolution(
  * `stepTimeoutMs` elapses. See docs/pokerogue-headless-test-harness-mechanics.md
  * for the phase-ordering surprises this accounts for (post-victory switch,
  * forced switch mid-toNextTurn, LearnMovePhase, Struggle fallback).
+ * Phases left undriven after the turn end (e.g. "The effects of Water Sport
+ * have faded.") are run by `withIdlePhaseDriver` (mechanics doc 3.18).
  */
+export function advanceCombatAfterAction(game: GameManager, stepTimeoutMs: number): Promise<AdvanceStatus> {
+  return withIdlePhaseDriver(game, () => advanceCombatAfterActionUndriven(game, stepTimeoutMs));
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: verbatim move from the production collector template; restructuring risks changing behavior, see AGENTS.md harness/ exception
-export async function advanceCombatAfterAction(game: GameManager, stepTimeoutMs: number): Promise<AdvanceStatus> {
+async function advanceCombatAfterActionUndriven(game: GameManager, stepTimeoutMs: number): Promise<AdvanceStatus> {
   const terminalPhasesForTurnAdvance = [
     "GameOverPhase",
     "PostGameOverPhase",
@@ -1106,9 +1113,19 @@ export async function waitForDoubleFieldZeroFollowup(
  * a terminal phase, or `stepTimeoutMs` elapses. This is the exact function
  * behind the historical `step_timeout:advance_double_combat_after_action`
  * collector timeouts - see docs/pokerogue-headless-test-harness-mechanics.md.
+ * Wrapped in `withIdlePhaseDriver`: a new double battle after a biome switch
+ * left ToggleDoublePositionPhase / CheckSwitchPhase undriven (mechanics doc 3.18).
  */
+export function advanceDoubleCombatAfterAction(
+  game: GameManager,
+  action: DoubleCombatAdvanceAction,
+  stepTimeoutMs: number,
+): Promise<AdvanceStatus> {
+  return withIdlePhaseDriver(game, () => advanceDoubleCombatAfterActionUndriven(game, action, stepTimeoutMs));
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: verbatim move from the production collector template; restructuring risks changing behavior, see AGENTS.md harness/ exception
-export async function advanceDoubleCombatAfterAction(
+async function advanceDoubleCombatAfterActionUndriven(
   game: GameManager,
   action: DoubleCombatAdvanceAction,
   stepTimeoutMs: number,
